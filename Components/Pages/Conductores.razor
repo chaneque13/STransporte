@@ -1,0 +1,149 @@
+@page "/conductores"
+@inject IDbContextFactory<AppDbContext> Factory
+
+<PageTitle>Conductores</PageTitle>
+<h1>Conductores</h1>
+
+@if (!string.IsNullOrEmpty(error))
+{
+    <div class="alert alert-danger">@error</div>
+}
+
+@if (editando is null)
+{
+    <button class="btn btn-primary mb-3" @onclick="Nuevo">Nuevo conductor</button>
+
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr><th>Nombre</th><th>Licencia</th><th>Vigencia</th><th>Teléfono</th><th>Estado</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var c in lista)
+            {
+                <tr>
+                    <td>@c.Nombre</td>
+                    <td>@c.Licencia</td>
+                    <td class="@(c.VigenciaLicencia.Date < DateTime.Today ? "text-danger fw-bold" : "")">
+                        @c.VigenciaLicencia.ToString("dd/MM/yyyy")
+                    </td>
+                    <td>@c.Telefono</td>
+                    <td><span class="badge @ClaseEstado(c.Estado)">@c.Estado</span></td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => Editar(c)">Editar</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => Eliminar(c)">Eliminar</button>
+                    </td>
+                </tr>
+            }
+            @if (lista.Count == 0)
+            {
+                <tr><td colspan="6" class="text-muted">No hay conductores registrados.</td></tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <h4>@(editando.IdConductor == 0 ? "Nuevo conductor" : "Editar conductor")</h4>
+    <EditForm Model="editando" OnValidSubmit="Guardar" FormName="formConductor">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="mb-3">
+            <label class="form-label">Nombre completo</label>
+            <InputText class="form-control" @bind-Value="editando.Nombre" />
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Número de licencia federal</label>
+            <InputText class="form-control" @bind-Value="editando.Licencia" />
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Vigencia de la licencia</label>
+            <InputDate class="form-control" @bind-Value="editando.VigenciaLicencia" />
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Teléfono</label>
+            <InputText class="form-control" @bind-Value="editando.Telefono" />
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Estado</label>
+            <InputSelect class="form-select" @bind-Value="editando.Estado">
+                @foreach (var e in Estados.Conductor)
+                {
+                    <option value="@e">@e</option>
+                }
+            </InputSelect>
+        </div>
+
+        <button type="submit" class="btn btn-success">Guardar</button>
+        <button type="button" class="btn btn-secondary" @onclick="Cancelar">Cancelar</button>
+    </EditForm>
+}
+
+@code {
+    List<Conductor> lista = new();
+    Conductor? editando;
+    string? error;
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    async Task Cargar()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        lista = await db.Conductores.AsNoTracking().OrderBy(c => c.Nombre).ToListAsync();
+    }
+
+    static string ClaseEstado(string estado) => estado switch
+    {
+        Estados.Disponible => "text-bg-success",
+        Estados.ConductorEnViaje => "text-bg-warning",
+        _ => "text-bg-secondary"
+    };
+
+    void Nuevo() { error = null; editando = new Conductor(); }
+
+    void Editar(Conductor c)
+    {
+        error = null;
+        editando = new Conductor
+        {
+            IdConductor = c.IdConductor, Nombre = c.Nombre, Licencia = c.Licencia,
+            VigenciaLicencia = c.VigenciaLicencia, Telefono = c.Telefono, Estado = c.Estado
+        };
+    }
+
+    void Cancelar() => editando = null;
+
+    async Task Guardar()
+    {
+        error = null;
+        try
+        {
+            await using var db = await Factory.CreateDbContextAsync();
+            if (editando!.IdConductor == 0) db.Conductores.Add(editando);
+            else db.Conductores.Update(editando);
+            await db.SaveChangesAsync();
+            editando = null;
+        }
+        catch (DbUpdateException)
+        {
+            error = "No se pudo guardar. Verifique que el número de licencia no esté repetido.";
+        }
+        await Cargar();
+    }
+
+    async Task Eliminar(Conductor c)
+    {
+        error = null;
+        try
+        {
+            await using var db = await Factory.CreateDbContextAsync();
+            db.Conductores.Remove(c);
+            await db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            error = $"No se puede eliminar a '{c.Nombre}' porque tiene viajes registrados.";
+        }
+        await Cargar();
+    }
+}

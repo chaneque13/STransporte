@@ -1,0 +1,71 @@
+﻿@page "/"
+@inject IDbContextFactory<AppDbContext> Factory
+
+<PageTitle>Inicio</PageTitle>
+
+<h1>Sistema de Logística de Trailers</h1>
+<p class="text-muted">Resumen de la operación</p>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card text-bg-primary"><div class="card-body">
+            <div class="fs-2">@viajesProgramados</div><div>Viajes programados</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-bg-warning"><div class="card-body">
+            <div class="fs-2">@viajesEnTransito</div><div>Viajes en tránsito</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-bg-success"><div class="card-body">
+            <div class="fs-2">@trailersDisponibles</div><div>Trailers disponibles</div>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-bg-success"><div class="card-body">
+            <div class="fs-2">@conductoresDisponibles</div><div>Conductores disponibles</div>
+        </div></div>
+    </div>
+</div>
+
+@if (licenciasPorVencer.Count > 0)
+{
+    <div class="alert alert-warning">
+        <strong>Licencias por vencer (próximos 30 días):</strong>
+        <ul class="mb-0">
+            @foreach (var c in licenciasPorVencer)
+            {
+                <li>@c.Nombre — vence @c.VigenciaLicencia.ToString("dd/MM/yyyy")</li>
+            }
+        </ul>
+    </div>
+}
+
+<div class="list-group w-auto" style="max-width: 420px;">
+    <a class="list-group-item list-group-item-action" href="viajes">Administrar viajes</a>
+    <a class="list-group-item list-group-item-action" href="clientes">Administrar clientes</a>
+    <a class="list-group-item list-group-item-action" href="trailers">Administrar trailers</a>
+    <a class="list-group-item list-group-item-action" href="conductores">Administrar conductores</a>
+    <a class="list-group-item list-group-item-action" href="reportes">Ver reportes</a>
+</div>
+
+@code {
+    int viajesProgramados, viajesEnTransito, trailersDisponibles, conductoresDisponibles;
+    List<Conductor> licenciasPorVencer = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        viajesProgramados = await db.Viajes.CountAsync(v => v.EstadoViaje == Estados.ViajeProgramado);
+        viajesEnTransito = await db.Viajes.CountAsync(v => v.EstadoViaje == Estados.ViajeEnTransito);
+        trailersDisponibles = await db.Trailers.CountAsync(t => t.Estado == Estados.Disponible);
+        conductoresDisponibles = await db.Conductores.CountAsync(c => c.Estado == Estados.Disponible);
+
+        var limite = DateTime.Today.AddDays(30);
+        licenciasPorVencer = await db.Conductores.AsNoTracking()
+            .Where(c => c.VigenciaLicencia <= limite)
+            .OrderBy(c => c.VigenciaLicencia)
+            .ToListAsync();
+    }
+}

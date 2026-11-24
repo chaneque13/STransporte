@@ -1,0 +1,146 @@
+@page "/reportes"
+@inject IDbContextFactory<AppDbContext> Factory
+
+<PageTitle>Reportes</PageTitle>
+<h1>Reporte de viajes</h1>
+
+<div class="row g-3 mb-3 align-items-end">
+    <div class="col-md-2">
+        <label class="form-label">Reporte por</label>
+        <select class="form-select" @bind="tipo" @bind:after="CambioTipo">
+            <option value="Cliente">Cliente</option>
+            <option value="Trailer">Trailer</option>
+            <option value="Conductor">Conductor</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label">@tipo</label>
+        <select class="form-select" @bind="idSeleccionado">
+            <option value="0">Todos</option>
+            @foreach (var o in opciones)
+            {
+                <option value="@o.Id">@o.Texto</option>
+            }
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">Desde</label>
+        <input type="date" class="form-control" @bind="desde" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">Hasta</label>
+        <input type="date" class="form-control" @bind="hasta" />
+    </div>
+    <div class="col-md-2">
+        <button class="btn btn-primary w-100" @onclick="Consultar">Consultar</button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(aviso))
+{
+    <div class="alert alert-warning">@aviso</div>
+}
+
+@if (resultados is not null)
+{
+    <div class="row g-3 mb-3">
+        <div class="col-md-4"><div class="card"><div class="card-body">
+            <div class="fs-3">@resultados.Count</div>viajes en el periodo
+        </div></div></div>
+        <div class="col-md-4"><div class="card"><div class="card-body">
+            <div class="fs-3">@(resultados.Count(v => v.EstadoViaje == Estados.ViajeEntregado))</div>entregados
+        </div></div></div>
+        <div class="col-md-4"><div class="card"><div class="card-body">
+            <div class="fs-3">@(resultados.Sum(v => v.Cargas.Sum(c => c.PesoKg)).ToString("N2")) kg</div>de carga transportada
+        </div></div></div>
+    </div>
+
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr>
+                <th>#</th><th>Salida</th><th>Cliente</th><th>Ruta</th><th>Trailer</th>
+                <th>Conductor</th><th>Estado</th><th class="text-end">Carga (kg)</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var v in resultados)
+            {
+                <tr>
+                    <td>@v.IdViaje</td>
+                    <td>@v.FechaSalida.ToString("dd/MM/yyyy HH:mm")</td>
+                    <td>@v.Cliente?.Nombre</td>
+                    <td>@v.Origen → @v.Destino</td>
+                    <td>@v.Trailer?.Placas</td>
+                    <td>@v.Conductor?.Nombre</td>
+                    <td>@v.EstadoViaje</td>
+                    <td class="text-end">@(v.Cargas.Sum(c => c.PesoKg).ToString("N2"))</td>
+                </tr>
+            }
+            @if (resultados.Count == 0)
+            {
+                <tr><td colspan="8" class="text-muted">No hay viajes con esos filtros.</td></tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    record Opcion(int Id, string Texto);
+
+    string tipo = "Cliente";
+    int idSeleccionado;
+    DateTime desde = DateTime.Today.AddMonths(-1);
+    DateTime hasta = DateTime.Today.AddMonths(1);
+    string? aviso;
+
+    List<Opcion> opciones = new();
+    List<Viaje>? resultados;
+
+    protected override async Task OnInitializedAsync() => await CambioTipo();
+
+    async Task CambioTipo()
+    {
+        idSeleccionado = 0;
+        await using var db = await Factory.CreateDbContextAsync();
+        opciones = tipo switch
+        {
+            "Trailer" => await db.Trailers.AsNoTracking().OrderBy(t => t.Placas)
+                .Select(t => new Opcion(t.IdTrailer, t.Placas)).ToListAsync(),
+            "Conductor" => await db.Conductores.AsNoTracking().OrderBy(c => c.Nombre)
+                .Select(c => new Opcion(c.IdConductor, c.Nombre)).ToListAsync(),
+            _ => await db.Clientes.AsNoTracking().OrderBy(c => c.Nombre)
+                .Select(c => new Opcion(c.IdCliente, c.Nombre)).ToListAsync()
+        };
+    }
+
+    async Task Consultar()
+    {
+        aviso = null;
+        if (hasta.Date < desde.Date)
+        {
+            aviso = "La fecha final no puede ser anterior a la inicial.";
+            return;
+        }
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var inicio = desde.Date;
+        var fin = hasta.Date.AddDays(1);
+        var id = idSeleccionado;
+
+        IQueryable<Viaje> q = db.Viajes.AsNoTracking()
+            .Include(v => v.Cliente).Include(v => v.Trailer).Include(v => v.Conductor).Include(v => v.Cargas)
+            .Where(v => v.FechaSalida >= inicio && v.FechaSalida < fin);
+
+        if (id != 0)
+        {
+            q = tipo switch
+            {
+                "Trailer" => q.Where(v => v.IdTrailer == id),
+                "Conductor" => q.Where(v => v.IdConductor == id),
+                _ => q.Where(v => v.IdCliente == id)
+            };
+        }
+
+        resultados = await q.OrderBy(v => v.FechaSalida).ToListAsync();
+    }
+}

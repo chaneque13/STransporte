@@ -1,0 +1,122 @@
+@page "/clientes"
+@inject IDbContextFactory<AppDbContext> Factory
+
+<PageTitle>Clientes</PageTitle>
+<h1>Clientes</h1>
+
+@if (!string.IsNullOrEmpty(error))
+{
+    <div class="alert alert-danger">@error</div>
+}
+
+@if (editando is null)
+{
+    <button class="btn btn-primary mb-3" @onclick="Nuevo">Nuevo cliente</button>
+
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr><th>Nombre</th><th>Teléfono</th><th>Correo</th><th>Dirección</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var c in lista)
+            {
+                <tr>
+                    <td>@c.Nombre</td>
+                    <td>@c.Telefono</td>
+                    <td>@c.Correo</td>
+                    <td>@c.Direccion</td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => Editar(c)">Editar</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => Eliminar(c)">Eliminar</button>
+                    </td>
+                </tr>
+            }
+            @if (lista.Count == 0)
+            {
+                <tr><td colspan="5" class="text-muted">No hay clientes registrados.</td></tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <h4>@(editando.IdCliente == 0 ? "Nuevo cliente" : "Editar cliente")</h4>
+    <EditForm Model="editando" OnValidSubmit="Guardar" FormName="formCliente">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="mb-3">
+            <label class="form-label">Nombre o razón social</label>
+            <InputText class="form-control" @bind-Value="editando.Nombre" />
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Teléfono</label>
+            <InputText class="form-control" @bind-Value="editando.Telefono" />
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Correo</label>
+            <InputText class="form-control" @bind-Value="editando.Correo" />
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Dirección</label>
+            <InputText class="form-control" @bind-Value="editando.Direccion" />
+        </div>
+
+        <button type="submit" class="btn btn-success">Guardar</button>
+        <button type="button" class="btn btn-secondary" @onclick="Cancelar">Cancelar</button>
+    </EditForm>
+}
+
+@code {
+    List<Cliente> lista = new();
+    Cliente? editando;
+    string? error;
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    async Task Cargar()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        lista = await db.Clientes.AsNoTracking().OrderBy(c => c.Nombre).ToListAsync();
+    }
+
+    void Nuevo() { error = null; editando = new Cliente(); }
+
+    void Editar(Cliente c)
+    {
+        error = null;
+        editando = new Cliente
+        {
+            IdCliente = c.IdCliente, Nombre = c.Nombre, Telefono = c.Telefono,
+            Correo = c.Correo, Direccion = c.Direccion
+        };
+    }
+
+    void Cancelar() => editando = null;
+
+    async Task Guardar()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        if (editando!.IdCliente == 0) db.Clientes.Add(editando);
+        else db.Clientes.Update(editando);
+        await db.SaveChangesAsync();
+        editando = null;
+        await Cargar();
+    }
+
+    async Task Eliminar(Cliente c)
+    {
+        error = null;
+        try
+        {
+            await using var db = await Factory.CreateDbContextAsync();
+            db.Clientes.Remove(c);
+            await db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            error = $"No se puede eliminar a '{c.Nombre}' porque tiene viajes registrados.";
+        }
+        await Cargar();
+    }
+}

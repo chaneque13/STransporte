@@ -1,0 +1,208 @@
+@page "/viajes"
+@inject IDbContextFactory<AppDbContext> Factory
+@inject ViajeService Servicio
+
+<PageTitle>Viajes</PageTitle>
+<h1>Viajes</h1>
+
+@foreach (var m in mensajes)
+{
+    <div class="alert alert-danger py-2 mb-2">@m</div>
+}
+@if (!string.IsNullOrEmpty(ok))
+{
+    <div class="alert alert-success">@ok</div>
+}
+
+@if (editando is null)
+{
+    <div class="d-flex gap-2 mb-3 align-items-center">
+        <button class="btn btn-primary" @onclick="Nuevo">Nuevo viaje</button>
+        <select class="form-select w-auto" @bind="filtroEstado" @bind:after="Cargar">
+            <option value="">Todos los estados</option>
+            @foreach (var e in Estados.Viaje)
+            {
+                <option value="@e">@e</option>
+            }
+        </select>
+    </div>
+
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr>
+                <th>#</th><th>Cliente</th><th>Ruta</th><th>Trailer</th><th>Conductor</th>
+                <th>Salida</th><th>Llegada</th><th>Estado</th><th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var v in lista)
+            {
+                <tr>
+                    <td>@v.IdViaje</td>
+                    <td>@v.Cliente?.Nombre</td>
+                    <td>@v.Origen → @v.Destino</td>
+                    <td>@v.Trailer?.Placas</td>
+                    <td>@v.Conductor?.Nombre</td>
+                    <td>@v.FechaSalida.ToString("dd/MM/yyyy HH:mm")</td>
+                    <td>@v.FechaLlegada.ToString("dd/MM/yyyy HH:mm")</td>
+                    <td><span class="badge @ClaseEstado(v.EstadoViaje)">@v.EstadoViaje</span></td>
+                    <td class="text-end text-nowrap">
+                        <a class="btn btn-sm btn-outline-secondary" href="viajes/@v.IdViaje/carga">Carga</a>
+                        @if (v.EstadoViaje == Estados.ViajeProgramado)
+                        {
+                            <button class="btn btn-sm btn-outline-primary" @onclick="() => Editar(v)">Editar</button>
+                            <button class="btn btn-sm btn-warning" @onclick="() => Cambiar(v, Estados.ViajeEnTransito)">Iniciar</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => Cambiar(v, Estados.ViajeCancelado)">Cancelar</button>
+                        }
+                        else if (v.EstadoViaje == Estados.ViajeEnTransito)
+                        {
+                            <button class="btn btn-sm btn-success" @onclick="() => Cambiar(v, Estados.ViajeEntregado)">Entregar</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => Cambiar(v, Estados.ViajeCancelado)">Cancelar</button>
+                        }
+                    </td>
+                </tr>
+            }
+            @if (lista.Count == 0)
+            {
+                <tr><td colspan="9" class="text-muted">No hay viajes para mostrar.</td></tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <h4>@(editando.IdViaje == 0 ? "Nuevo viaje" : $"Editar viaje #{editando.IdViaje}")</h4>
+    <EditForm Model="editando" OnValidSubmit="Guardar" FormName="formViaje">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Cliente</label>
+                <InputSelect class="form-select" @bind-Value="editando.IdCliente">
+                    <option value="0">-- Seleccione --</option>
+                    @foreach (var c in clientes)
+                    {
+                        <option value="@c.IdCliente">@c.Nombre</option>
+                    }
+                </InputSelect>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Trailer</label>
+                <InputSelect class="form-select" @bind-Value="editando.IdTrailer">
+                    <option value="0">-- Seleccione --</option>
+                    @foreach (var t in trailers)
+                    {
+                        <option value="@t.IdTrailer">@t.Placas (@t.TipoUnidad, @t.CapacidadTon.ToString("N1") t) — @t.Estado</option>
+                    }
+                </InputSelect>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Conductor</label>
+                <InputSelect class="form-select" @bind-Value="editando.IdConductor">
+                    <option value="0">-- Seleccione --</option>
+                    @foreach (var c in conductores)
+                    {
+                        <option value="@c.IdConductor">@c.Nombre — @c.Estado</option>
+                    }
+                </InputSelect>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Origen</label>
+                <InputText class="form-control" @bind-Value="editando.Origen" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Destino</label>
+                <InputText class="form-control" @bind-Value="editando.Destino" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Fecha y hora de salida</label>
+                <InputDate Type="InputDateType.DateTimeLocal" class="form-control" @bind-Value="editando.FechaSalida" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Fecha y hora de llegada (estimada)</label>
+                <InputDate Type="InputDateType.DateTimeLocal" class="form-control" @bind-Value="editando.FechaLlegada" />
+            </div>
+        </div>
+
+        <div class="mt-3">
+            <button type="submit" class="btn btn-success">Guardar</button>
+            <button type="button" class="btn btn-secondary" @onclick="Cancelar">Cancelar</button>
+        </div>
+    </EditForm>
+}
+
+@code {
+    List<Viaje> lista = new();
+    List<Cliente> clientes = new();
+    List<Trailer> trailers = new();
+    List<Conductor> conductores = new();
+
+    Viaje? editando;
+    string filtroEstado = "";
+    string? ok;
+    List<string> mensajes = new();
+
+    protected override async Task OnInitializedAsync() => await Cargar();
+
+    async Task Cargar()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+
+        IQueryable<Viaje> q = db.Viajes.AsNoTracking()
+            .Include(v => v.Cliente).Include(v => v.Trailer).Include(v => v.Conductor);
+        if (!string.IsNullOrEmpty(filtroEstado))
+            q = q.Where(v => v.EstadoViaje == filtroEstado);
+        lista = await q.OrderByDescending(v => v.FechaSalida).ToListAsync();
+
+        clientes = await db.Clientes.AsNoTracking().OrderBy(c => c.Nombre).ToListAsync();
+        trailers = await db.Trailers.AsNoTracking().OrderBy(t => t.Placas).ToListAsync();
+        conductores = await db.Conductores.AsNoTracking().OrderBy(c => c.Nombre).ToListAsync();
+    }
+
+    static string ClaseEstado(string estado) => estado switch
+    {
+        Estados.ViajeProgramado => "text-bg-primary",
+        Estados.ViajeEnTransito => "text-bg-warning",
+        Estados.ViajeEntregado => "text-bg-success",
+        _ => "text-bg-secondary"
+    };
+
+    void Limpiar() { mensajes = new(); ok = null; }
+
+    void Nuevo() { Limpiar(); editando = new Viaje(); }
+
+    void Editar(Viaje v)
+    {
+        Limpiar();
+        editando = new Viaje
+        {
+            IdViaje = v.IdViaje, IdCliente = v.IdCliente, IdTrailer = v.IdTrailer, IdConductor = v.IdConductor,
+            Origen = v.Origen, Destino = v.Destino, FechaSalida = v.FechaSalida, FechaLlegada = v.FechaLlegada,
+            EstadoViaje = v.EstadoViaje
+        };
+    }
+
+    void Cancelar() { Limpiar(); editando = null; }
+
+    async Task Guardar()
+    {
+        Limpiar();
+        mensajes = await Servicio.ValidarAsync(editando!);
+        if (mensajes.Count > 0) return;
+
+        await Servicio.GuardarAsync(editando!);
+        editando = null;
+        ok = "Viaje guardado correctamente.";
+        await Cargar();
+    }
+
+    async Task Cambiar(Viaje v, string nuevoEstado)
+    {
+        Limpiar();
+        var error = await Servicio.CambiarEstadoAsync(v.IdViaje, nuevoEstado);
+        if (error is not null) mensajes.Add(error);
+        else ok = $"Viaje #{v.IdViaje}: estado actualizado a '{nuevoEstado}'.";
+        await Cargar();
+    }
+}

@@ -1,0 +1,122 @@
+@page "/viajes/{IdViaje:int}/carga"
+@inject IDbContextFactory<AppDbContext> Factory
+@inject ViajeService Servicio
+
+<PageTitle>Carga del viaje</PageTitle>
+
+@if (viaje is null)
+{
+    <p class="text-muted">Cargando o viaje no encontrado…</p>
+    <a href="viajes">Volver a viajes</a>
+}
+else
+{
+    <h1>Carga del viaje #@viaje.IdViaje</h1>
+    <p>
+        <strong>@viaje.Cliente?.Nombre</strong> — @viaje.Origen → @viaje.Destino<br />
+        Trailer @viaje.Trailer?.Placas (capacidad @((viaje.Trailer?.CapacidadTon ?? 0).ToString("N2")) t) ·
+        Estado: <span class="badge text-bg-secondary">@viaje.EstadoViaje</span>
+    </p>
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="alert alert-danger">@error</div>
+    }
+
+    var totalKg = viaje.Cargas.Sum(c => c.PesoKg);
+    var capacidadKg = (viaje.Trailer?.CapacidadTon ?? 0) * 1000m;
+    var porcentaje = capacidadKg > 0 ? (int)Math.Min(100, totalKg / capacidadKg * 100) : 0;
+
+    <div class="mb-3">
+        <div class="d-flex justify-content-between">
+            <span>Carga total: @totalKg.ToString("N2") kg de @capacidadKg.ToString("N0") kg</span>
+            <span>@porcentaje %</span>
+        </div>
+        <div class="progress" role="progressbar" aria-valuenow="@porcentaje" aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-bar" style="width: @(porcentaje)%"></div>
+        </div>
+    </div>
+
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr><th>Descripción</th><th class="text-end">Peso (kg)</th><th class="text-end">Valor declarado</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var c in viaje.Cargas)
+            {
+                <tr>
+                    <td>@c.Descripcion</td>
+                    <td class="text-end">@c.PesoKg.ToString("N2")</td>
+                    <td class="text-end">@c.ValorDeclarado.ToString("C2")</td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => Eliminar(c)">Eliminar</button>
+                    </td>
+                </tr>
+            }
+            @if (viaje.Cargas.Count == 0)
+            {
+                <tr><td colspan="4" class="text-muted">Este viaje aún no tiene carga registrada.</td></tr>
+            }
+        </tbody>
+    </table>
+
+    <h4>Agregar carga</h4>
+    <EditForm Model="nueva" OnValidSubmit="Agregar" FormName="formCarga">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+        <div class="row g-3 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label">Descripción de la mercancía</label>
+                <InputText class="form-control" @bind-Value="nueva.Descripcion" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Peso (kg)</label>
+                <InputNumber class="form-control" @bind-Value="nueva.PesoKg" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Valor declarado</label>
+                <InputNumber class="form-control" @bind-Value="nueva.ValorDeclarado" />
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-success w-100">Agregar</button>
+            </div>
+        </div>
+    </EditForm>
+
+    <div class="mt-4"><a href="viajes">← Volver a viajes</a></div>
+}
+
+@code {
+    [Parameter] public int IdViaje { get; set; }
+
+    Viaje? viaje;
+    Carga nueva = new();
+    string? error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        nueva = new Carga { IdViaje = IdViaje };
+        await Cargar();
+    }
+
+    async Task Cargar()
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        viaje = await db.Viajes.AsNoTracking()
+            .Include(v => v.Cliente).Include(v => v.Trailer).Include(v => v.Cargas)
+            .FirstOrDefaultAsync(v => v.IdViaje == IdViaje);
+    }
+
+    async Task Agregar()
+    {
+        error = await Servicio.AgregarCargaAsync(nueva);
+        if (error is null) nueva = new Carga { IdViaje = IdViaje };
+        await Cargar();
+    }
+
+    async Task Eliminar(Carga c)
+    {
+        error = await Servicio.EliminarCargaAsync(c.IdCarga);
+        await Cargar();
+    }
+}
